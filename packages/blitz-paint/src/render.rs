@@ -182,7 +182,7 @@ impl<'dom> BlitzDomPainter<'dom> {
     /// Approaching rendering this way guarantees we have all the styles we need when rendering text with not having
     /// to traverse back to the parent for its styles, or needing to pass down styles
     fn render_element(&self, scene: &mut impl PaintScene, node_id: usize, location: Point) {
-        let node = &self.dom.as_ref().tree()[node_id];
+        let Some(node) = self.dom.as_ref().tree().get(node_id) else { return; };
 
         // Early return if the element is hidden
         if matches!(node.style.display, taffy::Display::None) {
@@ -331,7 +331,7 @@ impl<'dom> BlitzDomPainter<'dom> {
     }
 
     fn render_node(&self, scene: &mut impl PaintScene, node_id: usize, location: Point) {
-        let node = &self.dom.as_ref().tree()[node_id];
+        let Some(node) = self.dom.as_ref().tree().get(node_id) else { return; };
 
         match &node.data {
             NodeData::Element(_) | NodeData::AnonymousBlock(_) => {

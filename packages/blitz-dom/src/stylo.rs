@@ -75,10 +75,18 @@ impl crate::document::BaseDocument {
             .flush(&guards, Some(root), Some(&self.snapshots));
 
         // Mark actively animating nodes as dirty
+        // Collect stale animation keys for removal (nodes that no longer exist)
+        let mut stale_keys = Vec::new();
         let mut sets = self.animations.sets.write();
         for (key, set) in sets.iter_mut() {
             let node_id = key.node.id();
-            self.nodes[node_id].set_restyle_hint(RestyleHint::RESTYLE_SELF);
+            
+            // Check if node still exists before accessing it
+            let Some(node) = self.nodes.get(node_id) else {
+                stale_keys.push(key.clone());
+                continue;
+            };
+            node.set_restyle_hint(RestyleHint::RESTYLE_SELF);
 
             for animation in set.animations.iter_mut() {
                 if animation.state == AnimationState::Pending && animation.started_at <= now {
@@ -100,8 +108,11 @@ impl crate::document::BaseDocument {
                 }
             }
         }
+        // Remove stale animations for deleted nodes
+        for key in stale_keys {
+            sets.remove(&key);
+        }
         drop(sets);
-
         // Build the style context used by the style traversal
         let context = SharedStyleContext {
             traversal_flags: TraversalFlags::empty(),

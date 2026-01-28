@@ -592,6 +592,12 @@ impl Node {
         self.tree().get(id).unwrap()
     }
 
+    /// Try to get a reference to a node by id, returning None if the node does not exist.
+    /// Use this instead of `with()` when the node may have been deleted.
+    pub fn try_with(&self, id: usize) -> Option<&Node> {
+        self.tree().get(id)
+    }
+
     pub fn print_tree(&self, level: usize) {
         println!(
             "{} {} {:?} {} {:?}",
@@ -954,7 +960,7 @@ impl Node {
                 for hoisted_child in hoisted.pos_z_hoisted_children().rev() {
                     let x = x - hoisted_child.position.x;
                     let y = y - hoisted_child.position.y;
-                    if let Some(hit) = self.with(hoisted_child.node_id).hit(x, y) {
+                    if let Some(hit) = self.try_with(hoisted_child.node_id).and_then(|n| n.hit(x, y)) {
                         return Some(hit);
                     }
                 }
@@ -963,7 +969,7 @@ impl Node {
 
         // Call `.hit()` on each child in turn. If any return `Some` then return that value. Else return `Some(self.id).
         for child_id in self.paint_children.borrow().iter().flatten().rev() {
-            if let Some(hit) = self.with(*child_id).hit(x, y) {
+            if let Some(hit) = self.try_with(*child_id).and_then(|n| n.hit(x, y)) {
                 return Some(hit);
             }
         }
@@ -974,7 +980,7 @@ impl Node {
                 for hoisted_child in hoisted.neg_z_hoisted_children().rev() {
                     let x = x - hoisted_child.position.x;
                     let y = y - hoisted_child.position.y;
-                    if let Some(hit) = self.with(hoisted_child.node_id).hit(x, y) {
+                    if let Some(hit) = self.try_with(hoisted_child.node_id).and_then(|n| n.hit(x, y)) {
                         return Some(hit);
                     }
                 }
