@@ -226,7 +226,8 @@ impl BaseDocument {
         let mut maybe_id = Some(node_id);
         while let Some(id) = maybe_id {
             ancestors.push(id);
-            maybe_id = self.nodes[id].layout_parent.get();
+            // Guard against stale node references
+            maybe_id = self.nodes.get(id).and_then(|n| n.layout_parent.get());
         }
         ancestors.reverse();
         ancestors
@@ -280,7 +281,9 @@ impl BaseDocument {
         let divergent_a = chain_a[common_depth];
         let divergent_b = chain_b[common_depth];
         let parent_id = chain_a[common_depth - 1];
-        let parent = &self.nodes[parent_id];
+        let Some(parent) = self.nodes.get(parent_id) else {
+            return Ordering::Equal;
+        };
 
         for &child_id in &parent.children {
             if child_id == divergent_a {
@@ -301,7 +304,7 @@ impl BaseDocument {
         let mut current = Some(node_id);
         while let Some(id) = current {
             ancestors.push(id);
-            current = self.nodes[id].parent;
+            current = self.nodes.get(id).and_then(|n| n.parent);
         }
         ancestors.reverse();
         ancestors
@@ -379,26 +382,28 @@ impl BaseDocument {
                         }
                     } else {
                         // Last is regular: include it if it's an inline root and not already collected
-                        let node = &self.nodes[node_id];
-                        if node.flags.is_inline_root() && !result.contains(&node_id) {
-                            result.push(node_id);
+                        if let Some(node) = self.nodes.get(node_id) {
+                            if node.flags.is_inline_root() && !result.contains(&node_id) {
+                                result.push(node_id);
+                            }
                         }
                     }
                     break;
                 }
 
-                let node = &self.nodes[node_id];
-                if node.flags.is_inline_root() && !result.contains(&node_id) {
-                    result.push(node_id);
-                } else {
-                    // For non-inline-root nodes, collect any inline roots from their layout_children
-                    // This handles intermediate block containers with anonymous block children
-                    self.collect_layout_children_inline_roots(
-                        node_id,
-                        None,
-                        Some(last_anchor),
-                        &mut result,
-                    );
+                if let Some(node) = self.nodes.get(node_id) {
+                    if node.flags.is_inline_root() && !result.contains(&node_id) {
+                        result.push(node_id);
+                    } else {
+                        // For non-inline-root nodes, collect any inline roots from their layout_children
+                        // This handles intermediate block containers with anonymous block children
+                        self.collect_layout_children_inline_roots(
+                            node_id,
+                            None,
+                            Some(last_anchor),
+                            &mut result,
+                        );
+                    }
                 }
             }
         }
@@ -410,7 +415,9 @@ impl BaseDocument {
     /// For anonymous blocks: returns (parent_id, Some(node_id))
     /// For regular nodes: returns (node_id, None)
     fn resolve_for_traversal(&self, node_id: usize) -> (usize, Option<usize>) {
-        let node = &self.nodes[node_id];
+        let Some(node) = self.nodes.get(node_id) else {
+            return (node_id, None);
+        };
         if node.is_anonymous() {
             (node.parent.unwrap_or(node_id), Some(node_id))
         } else {
@@ -421,7 +428,9 @@ impl BaseDocument {
     /// Collect anonymous block siblings between start and end (inclusive)
     /// Also recursively collects inline roots from any block children in between
     fn collect_anonymous_siblings(&self, parent_id: usize, start: usize, end: usize) -> Vec<usize> {
-        let parent = &self.nodes[parent_id];
+        let Some(parent) = self.nodes.get(parent_id) else {
+            return Vec::new();
+        };
         let layout_children = parent.layout_children.borrow();
         let Some(children) = layout_children.as_ref() else {
             return Vec::new();
@@ -438,7 +447,10 @@ impl BaseDocument {
 
         let mut result = Vec::new();
         for &child_id in &children[first_idx..=last_idx] {
-            let child = &self.nodes[child_id];
+            // Skip stale node references
+            let Some(child) = self.nodes.get(child_id) else {
+                continue;
+            };
             if child.flags.is_inline_root() {
                 result.push(child_id);
             } else {
@@ -451,14 +463,19 @@ impl BaseDocument {
 
     /// Recursively collect all inline roots from a node's layout_children subtree
     fn collect_all_inline_roots_in_subtree(&self, node_id: usize, result: &mut Vec<usize>) {
-        let node = &self.nodes[node_id];
+        let Some(node) = self.nodes.get(node_id) else {
+            return;
+        };
         let layout_children = node.layout_children.borrow();
         let Some(children) = layout_children.as_ref() else {
             return;
         };
 
         for &child_id in children.iter() {
-            let child = &self.nodes[child_id];
+            // Skip stale node references (node was deleted but layout_children not updated)
+            let Some(child) = self.nodes.get(child_id) else {
+                continue;
+            };
             if child.flags.is_inline_root() {
                 result.push(child_id);
             } else {
@@ -478,7 +495,9 @@ impl BaseDocument {
         until: Option<usize>,
         result: &mut Vec<usize>,
     ) {
-        let parent = &self.nodes[parent_id];
+        let Some(parent) = self.nodes.get(parent_id) else {
+            return;
+        };
         let layout_children = parent.layout_children.borrow();
         let Some(children) = layout_children.as_ref() else {
             return;
@@ -500,7 +519,10 @@ impl BaseDocument {
                 if until == Some(child_id) {
                     break;
                 }
-                let child = &self.nodes[child_id];
+                // Skip stale node references (node was deleted but layout_children not updated)
+                let Some(child) = self.nodes.get(child_id) else {
+                    continue;
+                };
                 if child.flags.is_inline_root() {
                     result.push(child_id);
                 } else {
@@ -514,7 +536,10 @@ impl BaseDocument {
     /// Check if `ancestor_id` is an ancestor of `descendant_id`
     fn is_ancestor_of(&self, ancestor_id: usize, descendant_id: usize) -> bool {
         let mut current = descendant_id;
-        while let Some(parent) = self.nodes[current].parent {
+        while let Some(node) = self.nodes.get(current) {
+            let Some(parent) = node.parent else {
+                break;
+            };
             if parent == ancestor_id {
                 return true;
             }
