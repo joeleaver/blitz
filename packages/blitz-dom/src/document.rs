@@ -1055,7 +1055,9 @@ impl BaseDocument {
                 opaque_node_id,
                 ServoElementSnapshot {
                     state: Some(node.element_state),
-                    attrs,
+                    // attrs must always be Some - stylo's get_attr unwraps this
+                    // Use empty Vec for non-element nodes (text, comment, etc.)
+                    attrs: attrs.or_else(|| Some(Vec::new())),
                     changed_attrs,
                     class_changed: true,
                     id_changed: true,
